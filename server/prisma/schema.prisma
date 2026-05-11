@@ -1,0 +1,148 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  passwordHash String
+  name       String
+  role       String   @default("user")
+  avatar     String?
+  phone      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  cart        CartItem[]
+  favorites   Favorite[]
+  collections Collection[]
+  orders      Order[]
+  reviews     Review[]
+  images      Image[]
+}
+
+model Product {
+  id          Int      @id @default(autoincrement())
+  name        String
+  category    String
+  material    String
+  color       String
+  price       Int
+  eco         Int
+  width       Int
+  height      Int
+  depth       Int
+  delivery    Int
+  tag         String
+  imageFile   String   @default("")
+  description String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cartItems  CartItem[]
+  favorites  Favorite[]
+  orderItems OrderItem[]
+  reviews    Review[]
+  images     Image[]
+}
+
+model CartItem {
+  id        Int  @id @default(autoincrement())
+  userId    String
+  productId Int
+  qty       Int  @default(1)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+}
+
+model Favorite {
+  id        Int  @id @default(autoincrement())
+  userId    String
+  productId Int
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+}
+
+model Collection {
+  id     Int    @id @default(autoincrement())
+  userId String
+  name   String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items  CollectionItem[]
+}
+
+model CollectionItem {
+  id           Int        @id @default(autoincrement())
+  collectionId Int
+  productId    Int
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, productId])
+}
+
+model Order {
+  id             Int      @id @default(autoincrement())
+  userId         String
+  userName       String
+  total          Int
+  promo          String   @default("")
+  status         String   @default("Оплачен")
+  deliveryMethod String   @default("courier")
+  city           String   @default("")
+  street         String   @default("")
+  phone          String   @default("")
+  pickupAddress  String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items          OrderItem[]
+}
+
+model OrderItem {
+  id        Int  @id @default(autoincrement())
+  orderId   Int
+  productId Int
+  name      String
+  qty       Int
+  price     Int
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model Review {
+  id        Int      @id @default(autoincrement())
+  productId Int
+  userId    String?
+  author    String
+  rating    Int
+  text      String
+  date      String
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  images    Image[]
+}
+
+model Image {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  data      String   @db.Text
+  productId Int?
+  userId    String?
+  reviewId  Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  review  Review?  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+}
