@@ -536,6 +536,43 @@ input[type='range'] { accent-color: #211d18; padding: 0; }
   resize: vertical;
 }
 
+.file-picker {
+  display: grid;
+  gap: 0.35rem;
+  align-items: start;
+  color: #4f463b;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.file-picker input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.file-picker button {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: #211d18;
+  color: #fffaf2;
+  padding: 0.55rem 1rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.file-picker em {
+  color: #7b6b58;
+  font-size: 0.78rem;
+  font-style: normal;
+}
+
 .crud-form-actions { display: flex; gap: 0.5rem; }
 .crud-save { border-radius: 999px; padding: 0.5rem 1.2rem; background: #211d18; color: #fffaf2; font-weight: 700; border: 0; cursor: pointer; }
 .crud-cancel { border-radius: 999px; padding: 0.5rem 1.2rem; border: 1px solid rgba(35, 30, 24, 0.16); background: rgba(255, 252, 247, 0.55); color: #211d18; cursor: pointer; }

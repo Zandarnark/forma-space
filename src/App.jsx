@@ -257,9 +257,37 @@ function App() {
   function startEditProduct(product) { setEditingProduct(product.id); setProductForm({ ...product }) }
   function startNewProduct() { setEditingProduct('new'); setProductForm({ ...emptyProduct, id: Date.now() }) }
 
-  async function handleProductImageUpload(e) { const file = e.target.files[0]; if (!file) return; const b64 = await fileToBase64(file); setProductForm((f) => ({ ...f, imageSrc: b64, imageFile: file.name })) }
+  async function handleProductImageUpload(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const b64 = await fileToBase64(file)
+    setProductForm((f) => ({ ...f, imageSrc: b64, imageFile: file.name }))
+    e.target.value = ''
+  }
 
-  function fileToBase64(file) { return new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(file) }) }
+  function fileToBase64(file) {
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const original = reader.result
+        if (!file.type.startsWith('image/') || file.type === 'image/svg+xml') return resolve(original)
+        const img = new Image()
+        img.onload = () => {
+          const maxSide = 1200
+          const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+          const canvas = document.createElement('canvas')
+          canvas.width = Math.max(1, Math.round(img.width * scale))
+          canvas.height = Math.max(1, Math.round(img.height * scale))
+          const ctx = canvas.getContext('2d')
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+          resolve(canvas.toDataURL('image/jpeg', 0.86))
+        }
+        img.onerror = () => resolve(original)
+        img.src = original
+      }
+      reader.readAsDataURL(file)
+    })
+  }
 
   async function saveProduct() {
     if (!productForm.name) return
@@ -338,7 +366,13 @@ function App() {
   function startEditReview(r) { setEditingReview(r.id); setReviewForm({ ...r }) }
   function startNewReview() { setEditingReview('new'); setReviewForm({ ...emptyReview, id: Date.now() }) }
 
-  async function handleReviewImageUpload(e) { const file = e.target.files[0]; if (!file) return; const b64 = await fileToBase64(file); setReviewForm((f) => ({ ...f, imageSrc: b64 })) }
+  async function handleReviewImageUpload(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const b64 = await fileToBase64(file)
+    setReviewForm((f) => ({ ...f, imageSrc: b64 }))
+    e.target.value = ''
+  }
 
   async function saveReview() {
     if (!reviewForm.author || !reviewForm.text) return
@@ -434,10 +468,10 @@ function App() {
                       <label>Цена<input type="number" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} /></label>
                       <label>Eco %<input type="number" min="0" max="100" value={productForm.eco} onChange={(e) => setProductForm({ ...productForm, eco: Number(e.target.value) })} /></label>
                       <label>Ш x В x Г<input type="number" value={productForm.width} onChange={(e) => setProductForm({ ...productForm, width: Number(e.target.value) })} style={{width:'4rem',display:'inline-block'}} /> x <input type="number" value={productForm.height} onChange={(e) => setProductForm({ ...productForm, height: Number(e.target.value) })} style={{width:'4rem',display:'inline-block'}} /> x <input type="number" value={productForm.depth} onChange={(e) => setProductForm({ ...productForm, depth: Number(e.target.value) })} style={{width:'4rem',display:'inline-block'}} /> см</label>
-                      <label>Доставка дней<input type="number" value={productForm.delivery} onChange={(e) => setProductForm({ ...productForm, delivery: Number(e.target.value) })} /></label>
+                      <label>Срок изготовления, дней<input type="number" value={productForm.delivery} onChange={(e) => setProductForm({ ...productForm, delivery: Number(e.target.value) })} /></label>
                       <label>Тег<input value={productForm.tag} onChange={(e) => setProductForm({ ...productForm, tag: e.target.value })} /></label>
                     </div>
-                    <label>Картинка товара<input type="file" accept="image/*" ref={productFileRef} onChange={handleProductImageUpload} /></label>
+                    <div className="file-picker"><span>Картинка товара</span><input type="file" accept="image/*" ref={productFileRef} onChange={handleProductImageUpload} /><button type="button" onClick={() => productFileRef.current?.click()}>Выбрать фото</button>{productForm.imageFile && <em>{productForm.imageFile}</em>}</div>
                     {(productForm.imageSrc || imageMap[`img-product-${productForm.id}`]) && <div className="crud-preview"><img src={productForm.imageSrc || imageMap[`img-product-${productForm.id}`]} alt="preview" /></div>}
                     <label>Описание<textarea value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} /></label>
                     <div className="crud-form-actions"><button className="crud-save" type="button" onClick={saveProduct}>Сохранить</button><button className="crud-cancel" type="button" onClick={cancelEditProduct}>Отмена</button></div>
@@ -485,7 +519,7 @@ function App() {
                       <label>Дата<input value={reviewForm.date} onChange={(e) => setReviewForm({ ...reviewForm, date: e.target.value })} placeholder="01.05.2026" /></label>
                     </div>
                     <label>Текст отзыва<textarea value={reviewForm.text} onChange={(e) => setReviewForm({ ...reviewForm, text: e.target.value })} /></label>
-                    <label>Фото отзыва<input type="file" accept="image/*" ref={reviewFileRef} onChange={handleReviewImageUpload} /></label>
+                    <div className="file-picker"><span>Фото отзыва</span><input type="file" accept="image/*" ref={reviewFileRef} onChange={handleReviewImageUpload} /><button type="button" onClick={() => reviewFileRef.current?.click()}>Выбрать фото</button>{reviewForm.imageSrc && <em>Фото выбрано</em>}</div>
                     {(reviewForm.imageSrc || imageMap[`img-review-${reviewForm.id}`]) && <div className="crud-preview"><img src={reviewForm.imageSrc || imageMap[`img-review-${reviewForm.id}`]} alt="review" /></div>}
                     <div className="crud-form-actions"><button className="crud-save" type="button" onClick={saveReview}>Сохранить</button><button className="crud-cancel" type="button" onClick={cancelEditReview}>Отмена</button></div>
                   </div>
@@ -760,7 +794,7 @@ function App() {
               <div className="spec-grid">
                 <span>{modal.width} x {modal.depth} x {modal.height} см</span>
                 <span>{modal.material}</span>
-                <span>Доставка {modal.delivery} дней</span>
+                <span>Изготовление {modal.delivery} дней</span>
                 <span>Eco {modal.eco}%</span>
               </div>
               <div className="modal-price">
