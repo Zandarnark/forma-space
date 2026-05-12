@@ -551,6 +551,9 @@ input[type='range'] { accent-color: #211d18; padding: 0; }
   block-size: 1px;
   opacity: 0;
   pointer-events: none;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  overflow: hidden;
 }
 
 .file-picker button {
