@@ -429,13 +429,12 @@ function App() {
             </div>
             <form onSubmit={authMode === 'login' ? handleLogin : handleRegister}>
               {authMode === 'register' && <label>Имя<input value={authForm.name} onChange={(e) => setAuthForm({ ...authForm, name: e.target.value })} placeholder="Алексей" /></label>}
-              <label>Email<input type="email" value={authForm.email} onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })} placeholder="user@test.ru" /></label>
+              <label>Email<input type="email" value={authForm.email} onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })} placeholder="Введите email" /></label>
               <label>Пароль<input type="password" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} placeholder="Минимум 6 символов" /></label>
               {authError && <p className="auth-error">{authError}</p>}
               {authSuccess && <p className="auth-success">{authSuccess}</p>}
               <button className="auth-submit" type="submit">{authMode === 'login' ? 'Войти' : 'Создать аккаунт'}</button>
             </form>
-            {authMode === 'login' && <div className="auth-hint"><p>Демо-аккаунты:</p><p>Админ: admin@forma.space / admin123</p><p>Пользователь: user@test.ru / user123</p></div>}
           </div>
         </section>
       </main>
