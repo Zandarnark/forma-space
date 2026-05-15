@@ -133,16 +133,26 @@ model Review {
 }
 
 model Image {
-  id        Int      @id @default(autoincrement())
-  key       String   @unique
-  data      String   @db.Text
+  id Int @id @default(autoincrement())
+  key String @unique
+  data String @db.Text
   productId Int?
-  userId    String?
-  reviewId  Int?
+  userId String?
+  reviewId Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
-  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  review  Review?  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  review Review? @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+}
+
+model PromoCode {
+  id Int @id @default(autoincrement())
+  code String @unique
+  discount Int
+  active Boolean @default(true)
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

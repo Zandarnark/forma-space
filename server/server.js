@@ -330,6 +330,67 @@ app.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
   res.json({ ok: true })
 })
 
+// ========== PROMOCODES ==========
+
+app.get('/api/promocodes', auth, adminOnly, async (_req, res) => {
+  const codes = await prisma.promoCode.findMany({ orderBy: { id: 'desc' } })
+  res.json(codes)
+})
+
+app.post('/api/promocodes', auth, adminOnly, async (req, res) => {
+  const { code, discount, active, expiresAt } = req.body
+  if (!code || !discount) return res.status(400).json({ error: 'Код и скидка обязательны' })
+  if (discount < 1 || discount > 90) return res.status(400).json({ error: 'Скидка от 1 до 90%' })
+  const pc = await prisma.promoCode.create({ data: { code: code.toUpperCase(), discount, active: active !== false, expiresAt: expiresAt || null } })
+  res.json(pc)
+})
+
+app.put('/api/promocodes/:id', auth, adminOnly, async (req, res) => {
+  const data = { ...req.body }
+  if (data.code) data.code = data.code.toUpperCase()
+  if (data.discount && (data.discount < 1 || data.discount > 90)) return res.status(400).json({ error: 'Скидка от 1 до 90%' })
+  if (data.expiresAt === '') data.expiresAt = null
+  const pc = await prisma.promoCode.update({ where: { id: +req.params.id }, data })
+  res.json(pc)
+})
+
+app.delete('/api/promocodes/:id', auth, adminOnly, async (req, res) => {
+  await prisma.promoCode.delete({ where: { id: +req.params.id } })
+  res.json({ ok: true })
+})
+
+app.post('/api/promocodes/validate', async (req, res) => {
+  const { code } = req.body
+  if (!code) return res.status(400).json({ error: 'Введите промокод' })
+  const pc = await prisma.promoCode.findUnique({ where: { code: code.toUpperCase() } })
+  if (!pc) return res.status(404).json({ error: 'Промокод не найден' })
+  if (!pc.active) return res.status(400).json({ error: 'Промокод неактивен' })
+  if (pc.expiresAt && new Date(pc.expiresAt) < new Date()) return res.status(400).json({ error: 'Срок действия промокода истёк' })
+  res.json({ discount: pc.discount, code: pc.code })
+})
+
+// ========== REVIEWS (user) ==========
+
+app.post('/api/reviews/product/:productId', auth, async (req, res) => {
+  const productId = +req.params.productId
+  const { rating, text } = req.body
+  if (!rating || !text) return res.status(400).json({ error: 'Заполните рейтинг и текст' })
+  if (rating < 1 || rating > 5) return res.status(400).json({ error: 'Рейтинг от 1 до 5' })
+  const existing = await prisma.review.findFirst({ where: { userId: req.user.id, productId } })
+  if (existing) return res.status(400).json({ error: 'Вы уже оставили отзыв на этот товар' })
+  const deliveredOrders = await prisma.order.findMany({
+    where: { userId: req.user.id, status: 'Доставлено' },
+    include: { items: true }
+  })
+  const bought = deliveredOrders.some((o) => o.items.some((it) => it.productId === productId))
+  if (!bought) return res.status(403).json({ error: 'Оставить отзыв можно только после доставки товара' })
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } })
+  const review = await prisma.review.create({
+    data: { productId, userId: req.user.id, author: user.name, rating, text, date: new Date().toLocaleDateString('ru-RU') }
+  })
+  res.json(review)
+})
+
 // ========== SERVER ==========
 
 const PORT = process.env.PORT || 3001

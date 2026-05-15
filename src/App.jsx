@@ -77,6 +77,14 @@ function App() {
   const [checkoutCity, setCheckoutCity] = useState('')
   const [checkoutStreet, setCheckoutStreet] = useState('')
   const [checkoutPhone, setCheckoutPhone] = useState('')
+  const [heroSlide, setHeroSlide] = useState(0)
+  const [promoResult, setPromoResult] = useState(null)
+  const [promoLoading, setPromoLoading] = useState(false)
+  const [promoCodes, setPromoCodes] = useState([])
+  const [editingPromo, setEditingPromo] = useState(null)
+  const [promoForm, setPromoForm] = useState(null)
+  const [userReviewForm, setUserReviewForm] = useState(null)
+  const [purchasedProducts, setPurchasedProducts] = useState([])
   const productFileRef = useRef(null)
   const reviewFileRef = useRef(null)
 
@@ -101,6 +109,16 @@ function App() {
   }, [token])
   useEffect(() => { if (isAdmin) { api('/orders').then(setOrders).catch(() => {}); api('/users').then(setAllUsers).catch(() => {}) } }, [isAdmin, orders.length])
   useEffect(() => { api('/reviews').then(setReviews).catch(() => {}) }, [])
+  useEffect(() => { if (isAdmin) { api('/promocodes').then(setPromoCodes).catch(() => {}) } }, [isAdmin, promoCodes.length])
+  useEffect(() => {
+    if (!isLoggedIn) return
+    api('/orders/my').then((myOrders) => {
+      const delivered = myOrders.filter((o) => o.status === 'Доставлено')
+      const ids = new Set()
+      delivered.forEach((o) => (o.items || []).forEach((it) => ids.add(it.productId)))
+      setPurchasedProducts([...ids])
+    }).catch(() => {})
+  }, [isLoggedIn])
 
   useEffect(() => {
     let active = true
@@ -125,7 +143,20 @@ function App() {
   function getProductImage(p) { const c = imageMap[`img-product-${p.id}`]; if (c) return c; return productPlaceholder(p.name, p.tag) }
   function getUserAvatar(u) { if (u.avatarSrc) return u.avatarSrc; const c = imageMap[`img-avatar-${u.id}`]; if (c) return c; return avatarPlaceholder(u.name) }
   function getReviewImage(r) { const c = imageMap[`img-review-${r.id}`]; if (c) return c; return null }
-  const heroImage = '/images/hero-new.webp'
+
+  const heroSlides = useMemo(() => {
+    if (products.length === 0) return []
+    const shuffled = [...products].sort(() => 0.5 - Math.random())
+    return shuffled.slice(0, 3)
+  }, [products.length])
+
+  useEffect(() => {
+    if (heroSlides.length <= 1) return
+    const timer = setInterval(() => {
+      setHeroSlide((i) => (i + 1) % heroSlides.length)
+    }, 4000)
+    return () => clearInterval(timer)
+  }, [heroSlides.length])
 
   const categories = ['Все', ...new Set(products.map((p) => p.category))]
   const materials = ['Все', ...new Set(products.map((p) => p.material))]
@@ -149,7 +180,7 @@ function App() {
   const visibleProducts = filteredProducts.slice(0, visibleCount)
   const cartItems = cart.map((item) => { const p = products.find((pr) => pr.id === item.id); return p ? { ...p, qty: item.qty } : null }).filter(Boolean)
   const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0)
-  const discount = promo.trim().toUpperCase() === 'FORMA10' ? subtotal * 0.1 : 0
+  const discount = promoResult ? Math.round(subtotal * promoResult.discount / 100) : 0
   const deliveryCost = subtotal > 120000 || subtotal === 0 ? 0 : (deliveryMethod === 'courier' ? 5999 : 0)
   const vat = Math.round((subtotal - discount) * 0.2 / 1.2)
   const total = subtotal - discount + deliveryCost
@@ -356,8 +387,8 @@ function App() {
 
   async function handleOrder() {
     try {
-      await api('/orders', { method: 'POST', body: JSON.stringify({ total, promo, deliveryMethod, city: checkoutCity, street: checkoutStreet, phone: checkoutPhone, pickupAddress: deliveryMethod === 'pickup' ? 'г. Туймазы, ул. Салавата Юлаева, д. 12' : '' }) })
-      setCart([]); setPromo(''); setCheckoutStep(1); setCheckoutCity(''); setCheckoutStreet(''); setCheckoutPhone(''); setOrderSuccess(true)
+      await api('/orders', { method: 'POST', body: JSON.stringify({ total, promo: promoResult?.code || promo, deliveryMethod, city: checkoutCity, street: checkoutStreet, phone: checkoutPhone, pickupAddress: deliveryMethod === 'pickup' ? 'г. Туймазы, ул. Салавата Юлаева, д. 12' : '' }) })
+      setCart([]); setPromo(''); setPromoResult(null); setCheckoutStep(1); setCheckoutCity(''); setCheckoutStreet(''); setCheckoutPhone(''); setOrderSuccess(true)
     } catch (err) { alert(err.message) }
   }
 
@@ -397,6 +428,52 @@ function App() {
     setReviews((prev) => prev.filter((r) => r.id !== id))
   }
   function cancelEditReview() { setEditingReview(null); setReviewForm(null) }
+
+  const emptyPromoCode = { code: '', discount: 10, active: true, expiresAt: '' }
+  function startNewPromoCode() { setEditingPromo('new'); setPromoForm({ ...emptyPromoCode, id: Date.now() }) }
+  function startEditPromoCode(pc) { setEditingPromo(pc.id); setPromoForm({ ...pc, expiresAt: pc.expiresAt ? pc.expiresAt.slice(0, 10) : '' }) }
+  async function savePromoCode() {
+    if (!promoForm.code || !promoForm.discount) return
+    try {
+      const data = { code: promoForm.code.toUpperCase(), discount: Number(promoForm.discount), active: promoForm.active, expiresAt: promoForm.expiresAt || null }
+      let saved
+      if (editingPromo === 'new') saved = await api('/promocodes', { method: 'POST', body: JSON.stringify(data) })
+      else saved = await api(`/promocodes/${editingPromo}`, { method: 'PUT', body: JSON.stringify(data) })
+      setPromoCodes((prev) => editingPromo === 'new' ? [...prev, saved] : prev.map((p) => p.id === saved.id ? saved : p))
+      setEditingPromo(null); setPromoForm(null)
+    } catch (err) { alert(err.message) }
+  }
+  async function deletePromoCode(id) {
+    await api(`/promocodes/${id}`, { method: 'DELETE' })
+    setPromoCodes((prev) => prev.filter((p) => p.id !== id))
+  }
+  function cancelEditPromoCode() { setEditingPromo(null); setPromoForm(null) }
+
+  async function applyPromo() {
+    if (!promo.trim()) { setPromoResult(null); return }
+    setPromoLoading(true)
+    try {
+      const res = await api('/promocodes/validate', { method: 'POST', body: JSON.stringify({ code: promo.trim() }) })
+      setPromoResult(res)
+    } catch { setPromoResult(null) }
+    setPromoLoading(false)
+  }
+
+  const ORDER_STATUSES = ['Оплачен', 'На складе', 'В пути', 'Доставлено', 'Отменён']
+  async function changeOrderStatus(orderId, newStatus) {
+    const updated = await api(`/orders/${orderId}/status`, { method: 'PUT', body: JSON.stringify({ status: newStatus }) })
+    setOrders((prev) => prev.map((o) => o.id === updated.id ? updated : o))
+    if (orderDetail?.id === updated.id) setOrderDetail(updated)
+  }
+
+  async function submitUserReview() {
+    if (!userReviewForm.rating || !userReviewForm.text.trim()) return
+    try {
+      const saved = await api(`/reviews/product/${userReviewForm.productId}`, { method: 'POST', body: JSON.stringify({ rating: userReviewForm.rating, text: userReviewForm.text.trim() }) })
+      setReviews((prev) => [...prev, saved])
+      setUserReviewForm(null)
+    } catch (err) { alert(err.message) }
+  }
 
   function confirmDeleteAction() {
     if (!confirmDelete) return
@@ -451,7 +528,7 @@ function App() {
         </header>
         <section className="section admin-page">
           <div className="section-heading"><p className="eyebrow">Администратор</p><h2>Панель управления</h2></div>
-          <div className="admin-tabs">{['Товары', 'Заказы', 'Пользователи', 'Отзывы', 'Аналитика'].map((tab) => (<button className={adminTab === tab ? 'active' : ''} key={tab} type="button" onClick={() => setAdminTab(tab)}>{tab}</button>))}</div>
+          <div className="admin-tabs">{['Товары', 'Заказы', 'Пользователи', 'Отзывы', 'Промокоды', 'Аналитика'].map((tab) => (<button className={adminTab === tab ? 'active' : ''} key={tab} type="button" onClick={() => setAdminTab(tab)}>{tab}</button>))}</div>
           <div className="admin-board">
             {adminTab === 'Товары' && (
               <div className="admin-crud">
@@ -479,14 +556,14 @@ function App() {
                 <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>ID</th><th>Фото</th><th>Название</th><th>Категория</th><th>Цена</th><th>Eco</th><th></th></tr></thead><tbody>{products.map((p) => (<tr key={p.id}><td>{p.id}</td><td><img className="crud-thumb" src={getProductImage(p)} alt="" /></td><td>{p.name}</td><td>{p.category}</td><td>{money.format(p.price)}</td><td>{p.eco}%</td><td className="crud-actions"><button className="crud-edit" type="button" onClick={() => startEditProduct(p)}>Изменить</button><button className="crud-delete" type="button" onClick={() => setConfirmDelete({ type: 'product', id: p.id, name: p.name })}>Удалить</button></td></tr>))}</tbody></table></div>
               </div>
             )}
-            {adminTab === 'Заказы' && (
-              <div className="admin-crud">
-                <div className="crud-header"><h3>Заказы ({orders.length})</h3></div>
-                {orders.length === 0 ? <div className="admin-placeholder"><p>Заказов пока нет.</p></div> : (
-                  <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>ID</th><th>Клиент</th><th>Дата</th><th>Сумма</th><th>Доставка</th><th>Статус</th><th></th></tr></thead><tbody>{orders.map((o) => (<tr key={o.id}><td>{o.id}</td><td>{o.userName}</td><td>{formatOrderDate(o)}</td><td>{money.format(o.total)}</td><td>{o.deliveryMethod === 'courier' ? 'Курьер' : 'Самовывоз'}</td><td><span className={`status-badge ${o.status === 'Оплачен' ? 'paid' : ''}`}>{o.status}</span></td><td className="crud-actions"><button className="crud-edit" type="button" onClick={() => setOrderDetail(o)}>Подробнее</button><button className="crud-delete" type="button" onClick={() => setConfirmDelete({ type: 'order', id: o.id, name: `Заказ #${o.id}` })}>Удалить</button></td></tr>))}</tbody></table></div>
-                )}
-              </div>
-            )}
+{adminTab === 'Заказы' && (
+  <div className="admin-crud">
+    <div className="crud-header"><h3>Заказы ({orders.length})</h3></div>
+    {orders.length === 0 ? <div className="admin-placeholder"><p>Заказов пока нет.</p></div> : (
+    <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>ID</th><th>Клиент</th><th>Дата</th><th>Сумма</th><th>Доставка</th><th>Статус</th><th></th></tr></thead><tbody>{orders.map((o) => (<tr key={o.id}><td>{o.id}</td><td>{o.userName}</td><td>{formatOrderDate(o)}</td><td>{money.format(o.total)}</td><td>{o.deliveryMethod === 'courier' ? 'Курьер' : 'Самовывоз'}</td><td><select className="status-select" value={o.status} onChange={(e) => changeOrderStatus(o.id, e.target.value)}>{ORDER_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></td><td className="crud-actions"><button className="crud-edit" type="button" onClick={() => setOrderDetail(o)}>Подробнее</button><button className="crud-delete" type="button" onClick={() => setConfirmDelete({ type: 'order', id: o.id, name: `Заказ #${o.id}` })}>Удалить</button></td></tr>))}</tbody></table></div>
+    )}
+  </div>
+)}
             {adminTab === 'Пользователи' && (
               <div className="admin-crud">
                 <div className="crud-header"><h3>Пользователи ({allUsers.length})</h3><button className="crud-add" type="button" onClick={startNewUser}>+ Добавить</button></div>
@@ -526,7 +603,25 @@ function App() {
                 <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>ID</th><th>Фото</th><th>Автор</th><th>Товар</th><th>Рейтинг</th><th>Текст</th><th></th></tr></thead><tbody>{reviews.map((r) => { const rp = products.find((p) => p.id === r.productId); return (<tr key={r.id}><td>{r.id}</td><td>{getReviewImage(r) ? <img className="crud-thumb" src={getReviewImage(r)} alt="" /> : '—'}</td><td>{r.author}</td><td>{rp?.name || '—'}</td><td>{'★'.repeat(r.rating)}{'☆'.repeat(5-r.rating)}</td><td style={{maxWidth:'12rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.text}</td><td className="crud-actions"><button className="crud-edit" type="button" onClick={() => startEditReview(r)}>Изменить</button><button className="crud-delete" type="button" onClick={() => setConfirmDelete({ type: 'review', id: r.id, name: `${r.author} — ${rp?.name || ''}` })}>Удалить</button></td></tr>)})}</tbody></table></div>
               </div>
             )}
-            {adminTab === 'Аналитика' && (<div className="admin-metrics"><div className="metric"><span>Выручка</span><strong>{money.format(orders.reduce((s, o) => s + o.total, 0) || 0)}</strong></div><div className="metric"><span>Заказов</span><strong>{orders.length}</strong></div><div className="metric"><span>Средний eco</span><strong>88%</strong></div><div className="metric"><span>Конверсия</span><strong>6.8%</strong></div></div>)}
+            {adminTab === 'Промокоды' && (
+  <div className="admin-crud">
+    <div className="crud-header"><h3>Промокоды ({promoCodes.length})</h3><button className="crud-add" type="button" onClick={startNewPromoCode}>+ Добавить промокод</button></div>
+    {editingPromo && (
+    <div className="crud-form animate-in">
+      <h4>{editingPromo === 'new' ? 'Новый промокод' : 'Редактирование'}</h4>
+      <div className="crud-form-grid">
+        <label>Код<input value={promoForm.code} onChange={(e) => setPromoForm({ ...promoForm, code: e.target.value })} placeholder="SALE20" /></label>
+        <label>Скидка %<input type="number" min="1" max="90" value={promoForm.discount} onChange={(e) => setPromoForm({ ...promoForm, discount: Number(e.target.value) })} /></label>
+        <label>Активен<select value={promoForm.active ? 'true' : 'false'} onChange={(e) => setPromoForm({ ...promoForm, active: e.target.value === 'true' })}><option value="true">Да</option><option value="false">Нет</option></select></label>
+        <label>Дата окончания<input type="date" value={promoForm.expiresAt || ''} onChange={(e) => setPromoForm({ ...promoForm, expiresAt: e.target.value })} /></label>
+      </div>
+      <div className="crud-form-actions"><button className="crud-save" type="button" onClick={savePromoCode}>Сохранить</button><button className="crud-cancel" type="button" onClick={cancelEditPromoCode}>Отмена</button></div>
+    </div>
+    )}
+    <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>ID</th><th>Код</th><th>Скидка</th><th>Активен</th><th>Действует до</th><th></th></tr></thead><tbody>{promoCodes.map((pc) => (<tr key={pc.id}><td>{pc.id}</td><td><strong>{pc.code}</strong></td><td>{pc.discount}%</td><td>{pc.active ? '✓' : '✕'}</td><td>{pc.expiresAt ? new Date(pc.expiresAt).toLocaleDateString('ru-RU') : '—'}</td><td className="crud-actions"><button className="crud-edit" type="button" onClick={() => startEditPromoCode(pc)}>Изменить</button><button className="crud-delete" type="button" onClick={() => deletePromoCode(pc.id)}>Удалить</button></td></tr>))}</tbody></table></div>
+  </div>
+)}
+{adminTab === 'Аналитика' && (<div className="admin-metrics"><div className="metric"><span>Выручка</span><strong>{money.format(orders.reduce((s, o) => s + o.total, 0) || 0)}</strong></div><div className="metric"><span>Заказов</span><strong>{orders.length}</strong></div><div className="metric"><span>Средний eco</span><strong>88%</strong></div><div className="metric"><span>Конверсия</span><strong>6.8%</strong></div></div>)}
           </div>
         </section>
         {confirmDelete && (
@@ -546,7 +641,7 @@ function App() {
               <div className="order-detail-grid">
                 <div className="order-detail-field"><span className="order-detail-label">Клиент</span><strong>{orderDetail.userName}</strong></div>
                 <div className="order-detail-field"><span className="order-detail-label">Дата</span><strong>{formatOrderDate(orderDetail)}</strong></div>
-                <div className="order-detail-field"><span className="order-detail-label">Статус</span><span className={`status-badge ${orderDetail.status === 'Оплачен' ? 'paid' : ''}`}>{orderDetail.status}</span></div>
+                <div className="order-detail-field"><span className="order-detail-label">Статус</span><select className="status-select" value={orderDetail.status} onChange={(e) => changeOrderStatus(orderDetail.id, e.target.value)}>{ORDER_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></div>
                 <div className="order-detail-field"><span className="order-detail-label">Доставка</span><strong>{orderDetail.deliveryMethod === 'courier' ? 'Курьер' : 'Самовывоз'}</strong></div>
                 {orderDetail.deliveryMethod === 'courier' && (<>
                   <div className="order-detail-field"><span className="order-detail-label">Город</span><strong>{orderDetail.city || '—'}</strong></div>
@@ -596,14 +691,23 @@ function App() {
       <section className="hero-section" id="top">
         <div className="hero-copy animate-in">
           <p className="eyebrow">Минимализм / честные материалы / умный подбор</p>
-          <h1>Дизайнерская мебель, проверенная вашим интерьером.</h1>
+          <h1>Дизайнерская мебель, проверенная вашим интерьером</h1>
           <p>FORMA SPACE — каталог мебели с прозрачной эко-информацией, проверкой габаритов и подбором под ваше пространство.</p>
           <div className="hero-actions"><a className="button primary" href="#catalog">Собрать интерьер</a></div>
         </div>
         <div className="hero-showcase animate-in">
-          <img src={heroImage} alt="Минималистичный интерьер" />
-          <div className="floating-card top-card animate-float"><strong>Eco ID</strong><span>FSC, переработанный текстиль, CO2 -18%</span></div>
-          <div className="floating-card bottom-card animate-float-slow"><strong>Fit score 94%</strong><span>Размеры совпадают с планом комнаты</span></div>
+          {heroSlides.length > 0 ? (
+            <>
+              <img src={getProductImage(heroSlides[heroSlide])} alt={heroSlides[heroSlide].name} className="hero-slide-img" />
+              <div className="hero-slide-dots">
+                {heroSlides.map((_, i) => (<span key={i} className={`hero-dot ${i === heroSlide ? 'active' : ''}`} onClick={() => setHeroSlide(i)} />))}
+              </div>
+              <div className="floating-card top-card animate-float"><strong>Eco ID</strong><span>FSC, переработанный текстиль, CO2 -18%</span></div>
+              <div className="floating-card bottom-card animate-float-slow"><strong>{heroSlides[heroSlide].name}</strong><span>{money.format(heroSlides[heroSlide].price)}</span></div>
+            </>
+          ) : (
+            <div className="floating-card top-card animate-float"><strong>Eco ID</strong><span>FSC, переработанный текстиль, CO2 -18%</span></div>
+          )}
         </div>
       </section>
 
@@ -663,7 +767,7 @@ function App() {
             </div>
           ))}
           {isLoggedIn && cartItems.length > 0 && (<>
-            <label className="promo">Промокод<input value={promo} onChange={(e) => setPromo(e.target.value)} placeholder="FORMA10 — скидка 10%" /></label>
+            <label className="promo">Промокод<div className="promo-row"><input value={promo} onChange={(e) => { setPromo(e.target.value); setPromoResult(null) }} placeholder="Введите промокод" /><button className="promo-apply" type="button" onClick={applyPromo} disabled={promoLoading}>{promoLoading ? '...' : 'Применить'}</button></div>{promoResult && <em className="promo-ok">Скидка {promoResult.discount}% применена</em>}</label>
             <div className="totals">
               <span>Товары: {money.format(subtotal)}</span>
               {discount > 0 && <span>Скидка: -{money.format(discount)}</span>}
@@ -805,24 +909,41 @@ function App() {
                 ) : null}
                 {isLoggedIn && <button className={`modal-fav-btn ${favorites.includes(modal.id) ? 'active' : ''}`} type="button" onClick={() => toggleFavorite(modal.id)}>★</button>}
               </div>
-              <div className="reviews-section">
-                <strong>Отзывы</strong>
-                {(() => {
-                  const pr = reviews.filter((r) => r.productId === modal.id)
-                  if (pr.length === 0) return <p className="reviews-empty">Отзывов пока нет.</p>
-                  const avg = pr.reduce((s, r) => s + r.rating, 0) / pr.length
-                  return <div className="reviews-summary">{avg.toFixed(1)} / 5 — {pr.length} {pr.length === 1 ? 'отзыв' : 'отзыва'}</div>
-                })()}
-                <div className="reviews-list">
-                  {reviews.filter((r) => r.productId === modal.id).map((r) => (
-                    <div className="review-card" key={r.id}>
-                      <div className="review-header"><strong>{r.author}</strong><span className="review-stars">{'★'.repeat(r.rating)}{'☆'.repeat(5-r.rating)}</span><span className="review-date">{r.date}</span></div>
-                      <p>{r.text}</p>
-                      {getReviewImage(r) && <img className="review-photo" src={getReviewImage(r)} alt="Фото отзыва" />}
-                    </div>
-                  ))}
-                </div>
-              </div>
+<div className="reviews-section">
+  <strong>Отзывы</strong>
+  {(() => {
+    const pr = reviews.filter((r) => r.productId === modal.id)
+    if (pr.length === 0) return <p className="reviews-empty">Отзывов пока нет.</p>
+    const avg = pr.reduce((s, r) => s + r.rating, 0) / pr.length
+    return <div className="reviews-summary">{avg.toFixed(1)} / 5 — {pr.length} {pr.length === 1 ? 'отзыв' : 'отзыва'}</div>
+  })()}
+  <div className="reviews-list">
+    {reviews.filter((r) => r.productId === modal.id).map((r) => (
+    <div className="review-card" key={r.id}>
+      <div className="review-header"><strong>{r.author}</strong><span className="review-stars">{'★'.repeat(r.rating)}{'☆'.repeat(5-r.rating)}</span><span className="review-date">{r.date}</span></div>
+      <p>{r.text}</p>
+      {getReviewImage(r) && <img className="review-photo" src={getReviewImage(r)} alt="Фото отзыва" />}
+    </div>
+    ))}
+  </div>
+  {isLoggedIn && purchasedProducts.includes(modal.id) && (
+    <div className="user-review-form">
+      <strong>Оставить отзыв</strong>
+      {userReviewForm && userReviewForm.productId === modal.id ? (
+        <div className="review-form-fields">
+          <label>Рейтинг<select value={userReviewForm.rating} onChange={(e) => setUserReviewForm({ ...userReviewForm, rating: Number(e.target.value) })}>{[5,4,3,2,1].map((v) => <option key={v} value={v}>{'★'.repeat(v)}{'☆'.repeat(5-v)}</option>)}</select></label>
+          <textarea placeholder="Ваш отзыв о товаре..." value={userReviewForm.text} onChange={(e) => setUserReviewForm({ ...userReviewForm, text: e.target.value })} rows={3} />
+          <div className="crud-form-actions"><button className="crud-save" type="button" onClick={submitUserReview}>Отправить</button><button className="crud-cancel" type="button" onClick={() => setUserReviewForm(null)}>Отмена</button></div>
+        </div>
+      ) : (
+        <button className="button ghost small" type="button" onClick={() => setUserReviewForm({ productId: modal.id, rating: 5, text: '' })}>Написать отзыв</button>
+      )}
+    </div>
+  )}
+  {isLoggedIn && !purchasedProducts.includes(modal.id) && (
+    <p className="reviews-empty">Оставить отзыв можно после доставки товара.</p>
+  )}
+</div>
             </div>
           </div>
         </div>
